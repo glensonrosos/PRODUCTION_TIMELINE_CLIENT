@@ -3,7 +3,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   Typography, Box, CircularProgress, Alert, Button, Switch, FormControlLabel, Chip
 } from '@mui/material';
-import { getTaskTemplates, toggleTaskTemplateActive } from '../../services/taskTemplateService';
+import { getTaskTemplates, toggleTaskTemplateActive, deleteTaskTemplate } from '../../services/taskTemplateService';
 import EditTaskTemplateModal from './EditTaskTemplateModal';
 import { toast } from 'react-toastify';
 
@@ -75,6 +75,20 @@ const TaskTemplateList = React.forwardRef((props, ref) => {
     setLoading(false); // Ensure loading is false if it was set true and no error, or after try/catch
   };
 
+  const handleDeleteTemplate = async (templateId) => {
+    if (!window.confirm('Are you sure you want to permanently delete this template? This action is only possible if the template is not used in any seasons and cannot be undone.')) {
+      return;
+    }
+    try {
+      await deleteTaskTemplate(templateId);
+      toast.success('Task Template deleted successfully.');
+      fetchTemplates(); // Refresh list and handle loading state
+    } catch (err) {
+      console.error('Failed to delete task template:', err);
+      toast.error(err.response?.data?.message || err.message || 'An error occurred while deleting the template.');
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 3 }}>
@@ -141,6 +155,15 @@ const TaskTemplateList = React.forwardRef((props, ref) => {
                     onClick={() => handleToggleActiveStatus(template._id, template.isActive)}
                   >
                     {template.isActive ? 'Deactivate' : 'Activate'}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    sx={{ ml: 1 }}
+                    onClick={() => handleDeleteTemplate(template._id)}
+                  >
+                    Delete
                   </Button>
                 </TableCell>
               </TableRow>

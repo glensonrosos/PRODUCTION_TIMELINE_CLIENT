@@ -1,4 +1,5 @@
 import axios from 'axios';
+import api from './api';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://10.0.1.221:5000/api';
 
@@ -118,6 +119,11 @@ export const updateTaskTemplate = async (id, templateData) => {
  * @param {string} id - The ID of the task template to toggle.
  * @returns {Promise<object>} The updated task template object.
  */
+export const deleteTaskTemplate = async (id) => {
+  const response = await api.delete(`/task-templates/${id}`);
+  return response.data;
+};
+
 export const toggleTaskTemplateActive = async (id) => {
   const token = getToken();
   if (!token) {
