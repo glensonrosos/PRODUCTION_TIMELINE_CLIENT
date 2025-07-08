@@ -32,6 +32,16 @@ const seasonService = {
     }
   },
 
+  updateSeasonDetails: async (seasonId, seasonData) => {
+    try {
+      const response = await api.put(`/seasons/${seasonId}`, seasonData);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to update season ${seasonId}:`, error.response?.data?.message || error.message);
+      throw new Error(error.response?.data?.message || 'Server error while updating season.');
+    }
+  },
+
   updateTaskInSeason: async (seasonId, taskId, taskData) => {
     try {
       const response = await api.put(`/seasons/${seasonId}/tasks/${taskId}`, taskData);

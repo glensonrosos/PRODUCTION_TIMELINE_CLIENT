@@ -14,10 +14,12 @@ import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
+import WarningIcon from '@mui/icons-material/Warning';
 import seasonService from '../services/seasonService';
 import { useAuth } from '../contexts/AuthContext';
 import ActivityLogViewer from '../components/logs/ActivityLogViewer';
 import HistoryIcon from '@mui/icons-material/History';
+import EditSeasonModal from '../components/seasons/EditSeasonModal';
 
 const SeasonDetailPage = () => {
   const { user: currentUser, loading: authLoading, isAuthenticated } = useAuth();
@@ -35,6 +37,7 @@ const SeasonDetailPage = () => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -107,6 +110,21 @@ const SeasonDetailPage = () => {
       setAlertInfo({ open: true, message: 'Failed to export season data.', severity: 'error' });
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleSaveSeasonDetails = async (updatedData) => {
+    setIsUpdating(true);
+    try {
+      const updatedSeason = await seasonService.updateSeasonDetails(seasonId, updatedData);
+      setSeasonDetails(updatedSeason);
+      setEditModalOpen(false);
+      setAlertInfo({ open: true, message: 'Season details updated successfully!', severity: 'success' });
+    } catch (err) {
+      console.error('Failed to update season details:', err);
+      setAlertInfo({ open: true, message: err.message || 'Failed to update season details.', severity: 'error' });
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -740,116 +758,209 @@ const SeasonDetailPage = () => {
         {error && <Alert severity="error">{error}</Alert>}
         
         <Box sx={{ opacity: loading ? 0.3 : 1 }}>
-
-        <Card sx={{ 
-    mb: 2, 
-    p: 2,
-    boxShadow: '0px 2px 10px rgba(0, 0, 0, 0.08)',
-    borderRadius: 2,
-    background: (theme) => theme.palette.background.paper
+        <Card sx={{
+  mb: 3,
+  p: 0,
+  boxShadow: '0px 4px 20px rgba(0, 0, 0, 0.08)',
+  borderRadius: '12px',
+  background: (theme) => theme.palette.background.paper,
+  transition: 'box-shadow 0.3s ease',
+  '&:hover': {
+    boxShadow: '0px 6px 24px rgba(0, 0, 0, 0.12)'
+  }
+}}>
+  <CardContent sx={{ 
+    p: 3, 
+    '&:last-child': { pb: 3 },
+    position: 'relative',
+    '&:before': {
+      content: '""',
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      height: '100%',
+      width: '4px',
+      background: (theme) => theme.palette.primary.main,
+      borderRadius: '12px 0 0 12px'
+    }
   }}>
-    <CardContent sx={{ p: 1 }}>
-      <Grid container spacing={2} justifyContent="space-between" alignItems="center">
-        {/* Left Section */}
-        <Grid item xs={12} md={6}>
+    <Grid container spacing={3} justifyContent="space-between" alignItems="flex-start">
+      {/* Left Section */}
+      <Grid item xs={12} md={8}>
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: 2,
+          position: 'relative'
+        }}>
+          {/* Title with edit button */}
           <Box sx={{ 
             display: 'flex', 
-            flexDirection: 'column',
+            alignItems: 'center', 
             gap: 1.5,
-            p: 1
+            flexWrap: 'wrap'
           }}>
             <Typography variant="h5" component="div" sx={{ 
-              fontWeight: 600,
+              fontWeight: 700, 
               color: (theme) => theme.palette.text.primary,
-              mb: 0.5
+              letterSpacing: '-0.25px'
             }}>
               {seasonDetails?.name || 'Season Details'}
             </Typography>
             
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                Buyer:
-              </Typography>
-              <Chip
-                onClick={()=>{}}
-                label={seasonDetails?.buyer?.name || 'N/A'}
-                color={getStatusColor(seasonDetails?.status)}
-                sx={{ 
-                  fontWeight: 600,
-                  minWidth: 80,
-                  justifyContent: 'center'
+            {(currentUser?.role === 'Admin' || currentUser?.role === 'Planner') && (
+              <IconButton 
+                onClick={() => setEditModalOpen(true)} 
+                size="small" 
+                title="Edit Season Details"
+                sx={{
+                  backgroundColor: (theme) => theme.palette.primary.light,
+                  '&:hover': {
+                    backgroundColor: (theme) => theme.palette.primary.main,
+                    color: '#fff'
+                  }
                 }}
-              />
-            </Box>
+              >
+                <EditIcon fontSize="small" />
+              </IconButton>
+            )}
           </Box>
-        </Grid>
-        
-        {/* Right Section */}
-        <Grid item xs={12} md={6}>
+          
+          {/* Buyer info with interactive chip */}
           <Box sx={{ 
             display: 'flex', 
-            flexDirection: 'column',
-            alignItems: { xs: 'flex-start', md: 'flex-end' },
+            alignItems: 'center', 
             gap: 1.5,
-            p: 1
+            flexWrap: 'wrap'
           }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                Status:
+            <Typography variant="body2" sx={{ 
+              color: 'text.secondary',
+              fontWeight: 500
+            }}>
+              Buyer:
+            </Typography>
+            <Chip 
+              label={seasonDetails?.buyer?.name || 'N/A'} 
+              onClick={() => {}} 
+              color="primary" 
+              size="medium" 
+              sx={{ 
+                fontWeight: 600,
+                px: 1.5,
+                '&:hover': {
+                  transform: 'translateY(-1px)',
+                  boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1)'
+                }
+              }} 
+            />
+          </Box>
+          
+          {/* Additional details section */}
+          {seasonDetails?.description && (
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="body2" sx={{ 
+                color: 'text.secondary',
+                lineHeight: 1.6
+              }}>
+                {seasonDetails.description}
               </Typography>
-              <Chip
-                onClick={()=>{}}
-                label={seasonDetails?.status || 'Unknown'}
-                color={getStatusColor(seasonDetails?.status)}
-                sx={{ 
-                  fontWeight: 600,
-                  minWidth: 80,
-                  justifyContent: 'center'
-                }}
-              />
             </Box>
-            
-            {seasonDetails?.requireAttention && seasonDetails.requireAttention.length > 0 && (
+          )}
+        </Box>
+      </Grid>
+
+      {/* Right Section */}
+      <Grid item xs={12} md={4}>
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: { xs: 'flex-start', md: 'flex-end' }, 
+          gap: 2,
+          height: '100%'
+        }}>
+          {/* Status with animated chip */}
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 1.5
+          }}>
+            <Typography variant="body2" sx={{ 
+              color: 'text.secondary',
+              fontWeight: 500
+            }}>
+              Status:
+            </Typography>
+            <Chip
+              label={seasonDetails?.status || 'Unknown'}
+              color={getStatusColor(seasonDetails?.status)}
+              sx={{ 
+                fontWeight: 700, 
+                minWidth: 100, 
+                justifyContent: 'center',
+                fontSize: '0.875rem',
+                py: 1,
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  transform: 'scale(1.05)'
+                }
+              }}
+              onClick={() => {}}
+            />
+          </Box>
+          
+          {/* Requires attention section */}
+          {seasonDetails?.requireAttention && seasonDetails.requireAttention.length > 0 && (
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: 'column',
+              alignItems: { xs: 'flex-start', md: 'flex-end' },
+              gap: 1,
+              width: '100%'
+            }}>
               <Box sx={{ 
                 display: 'flex', 
                 alignItems: 'center', 
-                flexWrap: 'wrap', 
-                gap: 1,
-                justifyContent: { xs: 'flex-start', md: 'flex-end' },
-                backgroundColor: (theme) => theme.palette.success.light + '20',
-                p: 1,
-                borderRadius: 1,
-                width: 'fit-content'
+                gap: 1
               }}>
+                <WarningIcon fontSize="small" color="error" />
                 <Typography variant="body2" sx={{ 
-                  color: 'error.main',
-                  fontWeight: 500
+                  color: 'error.main', 
+                  fontWeight: 600 
                 }}>
                   Requires Attention:
                 </Typography>
+              </Box>
+              <Box sx={{ 
+                display: 'flex', 
+                flexWrap: 'wrap', 
+                gap: 1,
+                justifyContent: { xs: 'flex-start', md: 'flex-end' },
+                maxWidth: '100%'
+              }}>
                 {seasonDetails.requireAttention.map(dep => (
                   <Chip 
-                    onClick={() => {}}
                     key={dep} 
+                    onClick={() => {}} 
                     label={dep} 
                     size="small" 
                     color="error" 
                     variant="outlined"
                     sx={{
-                      cursor: 'pointer',
                       '&:hover': {
-                        backgroundColor: (theme) => theme.palette.error.light + '40'
+                        backgroundColor: (theme) => theme.palette.error.light,
+                        color: (theme) => theme.palette.error.dark
                       }
                     }}
                   />
                 ))}
               </Box>
-            )}
-          </Box>
-        </Grid>
+            </Box>
+          )}
+        </Box>
       </Grid>
-    </CardContent>
-  </Card>
+    </Grid>
+  </CardContent>
+</Card>
             {/* Action Buttons */}
   <Box sx={{ 
     display: 'flex', 
@@ -1034,6 +1145,14 @@ const SeasonDetailPage = () => {
         onClose={() => setLogViewerOpen(false)}
         seasonId={seasonId}
       />
+      {seasonDetails && (
+        <EditSeasonModal
+          open={editModalOpen}
+          onClose={() => setEditModalOpen(false)}
+          season={seasonDetails}
+          onSave={handleSaveSeasonDetails}
+        />
+      )}
     </>
   );
 };
