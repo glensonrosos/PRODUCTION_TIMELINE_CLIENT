@@ -105,6 +105,7 @@ const UserList = () => {
                                     label={user.isActive ? 'Active' : 'Inactive'}
                                     color={user.isActive ? 'success' : 'default'}
                                     size="small"
+                                    onClick={() => {}}
                                     sx={{ mr: 1.5 }} // Margin for spacing within the flex box
                                 />
                                 <Tooltip title="Edit User">

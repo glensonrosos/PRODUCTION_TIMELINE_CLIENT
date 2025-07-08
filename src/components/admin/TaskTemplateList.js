@@ -18,8 +18,22 @@ const TaskTemplateList = React.forwardRef((props, ref) => {
   const fetchTemplates = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await getTaskTemplates(showInactive);
-      setTemplates(data);
+      let fetchedTemplates = await getTaskTemplates(showInactive);
+
+      // Custom sort for Excel-style order codes (A, B, ..., Z, AA, AB, ...)
+      fetchedTemplates.sort((a, b) => {
+        const orderA = a.order;
+        const orderB = b.order;
+        if (orderA.length < orderB.length) return -1;
+        if (orderA.length > orderB.length) return 1;
+        return orderA.localeCompare(orderB); // Fallback to standard string comparison for same-length codes
+      });
+
+      // Apply filtering for active/inactive status
+      const filtered = showInactive
+        ? fetchedTemplates
+        : fetchedTemplates.filter(t => t.isActive);
+      setTemplates(filtered);
       setError('');
     } catch (err) {
       console.error('Failed to fetch task templates:', err);

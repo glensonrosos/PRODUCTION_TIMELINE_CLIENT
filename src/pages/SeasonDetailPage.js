@@ -115,9 +115,19 @@ const SeasonDetailPage = () => {
     try {
       const data = await seasonService.getSeasonById(seasonId);
       
-      // The API returns an object { season: {...}, tasks: [...] }, so we destructure it.
+      const sortedTasks = data.tasks || [];
+
+      // Custom sort for Excel-style order codes (A, B, ..., Z, AA, AB, ...)
+      sortedTasks.sort((a, b) => {
+        const orderA = a.order;
+        const orderB = b.order;
+        if (orderA.length < orderB.length) return -1;
+        if (orderA.length > orderB.length) return 1;
+        return orderA.localeCompare(orderB);
+      });
+
       setSeasonDetails(data.season);
-      setTaskList(data.tasks || []);
+      setTaskList(sortedTasks);
       setError('');
     } catch (err) {
       console.error('Error fetching season details:', err);
@@ -305,8 +315,17 @@ const SeasonDetailPage = () => {
 
       if (response && response.season && response.tasks) {
         console.log('Successfully updated task. Updating UI with new season and task data.');
+        // Ensure tasks are sorted correctly after update
+        const sortedTasks = response.tasks.sort((a, b) => {
+          const orderA = a.order;
+          const orderB = b.order;
+          if (orderA.length < orderB.length) return -1;
+          if (orderA.length > orderB.length) return 1;
+          return orderA.localeCompare(orderB);
+        });
+
         setSeasonDetails(response.season);
-        setTaskList(response.tasks);
+        setTaskList(sortedTasks);
         setAlertInfo({ open: true, message: response.message || 'Task updated successfully!', severity: 'success' });
         const updatedTask = response.tasks.find(task => task._id === newRow._id);
         return updatedTask || newRow;
