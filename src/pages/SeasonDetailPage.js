@@ -20,6 +20,70 @@ import { useAuth } from '../contexts/AuthContext';
 import ActivityLogViewer from '../components/logs/ActivityLogViewer';
 import HistoryIcon from '@mui/icons-material/History';
 import EditSeasonModal from '../components/seasons/EditSeasonModal';
+import RemarksCell from '../components/seasons/RemarksCell';
+
+// Helper function to calculate the reference timeline based on dependencies
+const calculateReferenceTimeline = (tasks, seasonCreationDate) => {
+  if (!tasks || tasks.length === 0) return new Map();
+
+  const timeline = new Map();
+  const tasksByOrder = new Map(tasks.map(task => [task.order, task]));
+
+  // Sort tasks to process dependencies in a more orderly fashion
+  const sortedTasks = [...tasks].sort((a, b) => {
+    if (a.order.length < b.order.length) return -1;
+    if (a.order.length > b.order.length) return 1;
+    return a.order.localeCompare(b.order);
+  });
+
+  // Iteratively calculate dates until all tasks have a timeline
+  let tasksToProcess = sortedTasks.length;
+  let iterations = 0;
+  const MAX_ITERATIONS = tasksToProcess + 5; // Failsafe for circular dependencies
+
+  while (tasksToProcess > 0 && iterations < MAX_ITERATIONS) {
+    let processedInThisIteration = 0;
+    sortedTasks.forEach(task => {
+      // If already calculated, skip
+      if (timeline.has(task._id)) return;
+
+      let canCalculate = true;
+      let maxPrecedingEndDate = moment(seasonCreationDate);
+
+      if (task.precedingTasks && task.precedingTasks.length > 0) {
+        for (const precedingOrder of task.precedingTasks) {
+          const precedingTask = tasksByOrder.get(precedingOrder);
+          if (precedingTask && timeline.has(precedingTask._id)) {
+            const precedingEndDate = timeline.get(precedingTask._id).end;
+            if (moment(precedingEndDate).isAfter(maxPrecedingEndDate)) {
+              maxPrecedingEndDate = moment(precedingEndDate);
+            }
+          } else {
+            // A dependency hasn't been calculated yet, so we can't proceed with this task
+            canCalculate = false;
+            break;
+          }
+        }
+      }
+
+      if (canCalculate) {
+        const startDate = maxPrecedingEndDate;
+        const endDate = moment(startDate).add(task.leadTime, 'days');
+        timeline.set(task._id, { start: startDate.toDate(), end: endDate.toDate() });
+        processedInThisIteration++;
+      }
+    });
+
+    tasksToProcess -= processedInThisIteration;
+    iterations++;
+    if (processedInThisIteration === 0 && tasksToProcess > 0) {
+        console.error("Could not resolve all task dependencies for reference timeline. Check for circular dependencies.");
+        break; // Break loop if no progress is made
+    }
+  }
+
+  return timeline;
+};
 
 const SeasonDetailPage = () => {
   const { user: currentUser, loading: authLoading, isAuthenticated } = useAuth();
@@ -38,6 +102,7 @@ const SeasonDetailPage = () => {
   const [selectedStatus, setSelectedStatus] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [referenceTimeline, setReferenceTimeline] = useState(new Map());
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -162,6 +227,13 @@ const SeasonDetailPage = () => {
       fetchSeasonDetails();
     }
   }, [fetchSeasonDetails, seasonId]);
+
+  useEffect(() => {
+    if (taskList.length > 0 && seasonDetails?.createdAt) {
+      const timeline = calculateReferenceTimeline(taskList, seasonDetails.createdAt);
+      setReferenceTimeline(timeline);
+    }
+  }, [taskList, seasonDetails?.createdAt]);
 
   // Helper functions and sub-components moved before 'columns'
 
@@ -374,6 +446,57 @@ const SeasonDetailPage = () => {
     }));
   }, [setAlertInfo]);
 
+  const isCellEditable = useCallback((params) => {
+    if (authLoading || !currentUser || !seasonDetails) {
+      return false;
+    }
+
+    if (seasonDetails?.status !== 'Open') {
+      return false;
+    }
+
+    const userRole = currentUser?.role.toLowerCase();
+    const isAdminOrPlanner = userRole === 'admin' || userRole === 'planner';
+    const taskStatusLower = params.row?.status ? params.row.status.toLowerCase() : null;
+
+    if (taskStatusLower === 'completed' && !isAdminOrPlanner) {
+      return false;
+    }
+
+    // Check if user's department is in the responsible list
+    const responsibleDepartments = params.row.responsible.map(d => d.toLowerCase());
+    const userDepartment = currentUser?.department?.name.toLowerCase();
+
+    // A cell is editable if the user is an admin/planner OR their department is responsible for the task.
+    return isAdminOrPlanner || responsibleDepartments.includes(userDepartment);
+  }, [currentUser, seasonDetails, authLoading]);
+
+  const handleRemarkUpdate = async (row, newRemarks) => {
+    const apiPayload = { remarks: newRemarks };
+    setIsUpdating(true);
+    try {
+      const response = await seasonService.updateTaskInSeason(seasonId, row._id, apiPayload);
+      if (response && response.tasks) {
+        const sortedTasks = response.tasks.sort((a, b) => {
+          const orderA = a.order;
+          const orderB = b.order;
+          if (orderA.length < orderB.length) return -1;
+          if (orderA.length > orderB.length) return 1;
+          return orderA.localeCompare(orderB);
+        });
+        setTaskList(sortedTasks);
+        setAlertInfo({ open: true, message: 'Remarks updated successfully!', severity: 'success' });
+      } else {
+        throw new Error('Invalid response from server when updating remarks.');
+      }
+    } catch (err) {
+      console.error('Failed to update remarks:', err);
+      setAlertInfo({ open: true, message: err.message || 'Failed to update remarks.', severity: 'error' });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const AttachmentCell = ({ params, seasonId, onUploadSuccess }) => {
     const fileInputRef = useRef(null);
     const [anchorEl, setAnchorEl] = useState(null);
@@ -492,241 +615,238 @@ const SeasonDetailPage = () => {
     );
   };
 
-  const columns = useMemo(() => [
-    {
-      field: 'order',
-      headerName: 'Order',
-      width: 70,
-      editable: false,
-      cellClassName: 'font-tabular-nums',
-    },
-    {
-      field: 'name',
-      headerName: 'Task Name',
-      flex: 1,
-      minWidth: 250,
-      editable: false,
-      cellClassName: (params) => {
-        const task = params.row;
-        if (isTaskActionable(task, taskList)) {
-          return 'task-name-actionable';
-        }
-        return '';
+  const columns = useMemo(
+    () => [
+      {
+        field: 'order',
+        headerName: 'Order',
+        width: 70,
+        editable: false,
+        cellClassName: 'font-tabular-nums',
       },
-      renderCell: (params) => (
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          {params.row.status === 'blocked' && <LockIcon fontSize="small" sx={{ mr: 1, color: 'red' }} />}
-          {params.value}
-        </Box>
-      ),
-    },
-    {
-      field: 'precedingTasks',
-      headerName: 'Preceding Tasks',
-      width: 130,
-      editable: false,
-      valueGetter: (value, row) => row.precedingTasks?.join(', ') || '',
-      cellClassName: 'font-tabular-nums',
-    },
-    {
-      field: 'responsible',
-      headerName: 'Responsible',
-      width: 120,
-      editable: false,
-      valueGetter: (value, row) => row.responsible?.join(', ') || '',
-      cellClassName: 'font-tabular-nums',
-    },
-    {
-      field: 'status',
-      headerName: 'Status',
-      width: 120,
-      editable: false,
-      cellClassName: (params) => {
-        const task = params.row;
-        if (task.status === 'completed') return 'status-cell-completed';
-        if (isTaskActionable(task, taskList)) return 'status-cell-actionable';
-        if (task.status === 'blocked') return 'status-cell-blocked';
-        return '';
+      {
+        field: 'name',
+        headerName: 'Task Name',
+        flex: 2,
+        minWidth: 250,
+        editable: false,
       },
-      renderCell: (params) => (
-        <Chip
-          label={params.value}
-          size="small"
-          onClick={()=>{}}
-          color={
-            params.value === 'completed' ? 'success' :
-            params.value === 'pending' && isTaskActionable(params.row, taskList) ? 'warning' :
-            params.value === 'blocked' ? 'error' : 'default'
+      
+      {
+        field: 'responsible',
+        headerName: 'Responsible',
+        flex: 1,
+        minWidth: 150,
+        editable: false,
+        valueGetter: (value, row) => row.responsible.join(', '),
+      },
+      {
+        field: 'precedingTasks',
+        headerName: 'Preceding Tasks',
+        flex: 1,
+        minWidth: 100,
+        editable: false,
+        valueGetter: (value, row) => row.precedingTasks.join(', '),
+      },
+      {
+        field: 'status',
+        headerName: 'Status',
+        width: 130,
+        editable: false,
+        renderCell: (params) => (
+          <Chip
+            label={params.value}
+            size="small"
+            color={
+              params.value === 'completed'
+                ? 'success'
+                : params.value === 'pending' && isTaskActionable(params.row, taskList)
+                ? 'warning'
+                : params.value === 'blocked'
+                ? 'error'
+                : 'default'
+            }
+            variant={
+              isTaskActionable(params.row, taskList) || params.value === 'completed'
+                ? 'filled'
+                : 'outlined'
+            }
+          />
+        ),
+      },
+      {
+        field: 'timelineReference',
+        headerName: 'Timeline Reference',
+        width: 200,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => {
+          const timelineInfo = referenceTimeline.get(params.row._id);
+          if (!timelineInfo || !timelineInfo.start || !timelineInfo.end) {
+            return '...';
           }
-          variant={isTaskActionable(params.row, taskList) || params.value === 'completed' ? 'filled' : 'outlined'}
-        />
-      )
-    },
-    {
-      field: 'leadTime',
-      headerName: 'Lead Time (days)',
-      type: 'number',
-      width: 70,
-      editable: false,
-      align: 'right',
-      headerAlign: 'right',
-      valueGetter: (value, row) => row.leadTime,
-      cellClassName: 'font-tabular-nums',
-    },
-    {
-      field: 'computedDates.start',
-      headerName: 'Start Date',
-      type: 'date',
-      width: 120,
-      editable: false,
-      valueGetter: (value, row) => row.computedDates?.start ? new Date(row.computedDates.start) : null,
-      valueFormatter: (value) => value ? moment(value).format('DD-MMM-YY') : '',
-      cellClassName: 'font-tabular-nums',
-    },
-    {
-      field: 'computedDates.end',
-      headerName: 'End Date',
-      type: 'date',
-      width: 120,
-      editable: false,
-      valueGetter: (value, row) => row.computedDates?.end ? new Date(row.computedDates.end) : null,
-      valueFormatter: (value) => value ? moment(value).format('DD-MMM-YY') : '',
-      cellClassName: 'font-tabular-nums',
-    },
-    {
-      field: 'dateSpend',
-      headerName: 'Date Spend',
-      width: 70,
-      editable: false,
-      align: 'center',
-      headerAlign: 'center',
-      renderCell: (params) => {
-        const { row } = params;
-        if (!row || !row.actualCompletion || !row.computedDates?.end) {
-          return '';
-        }
-
-        const actual = moment(row.actualCompletion).startOf('day');
-        const plannedEnd = moment(row.computedDates.end).startOf('day');
-        const diff = actual.diff(plannedEnd, 'days');
-
-        const text = diff > 0 ? `+${diff}d` : `${diff}d`;
-        const color = diff > 0 ? 'error.main' : diff < 0 ? 'success.main' : 'text.secondary';
-
-        return (
-          <Typography variant="body2" color={color} sx={{ fontWeight: 'bold', pt: 2 }}>
-            {text}
-          </Typography>
-        );
+          const start = moment(timelineInfo.start).format('DD-MMM-YY');
+          const end = moment(timelineInfo.end).format('DD-MMM-YY');
+          return `${start} - ${end}`;
+        },
+        headerClassName: 'header-static',
       },
-    },
-    {
-      field: 'actualCompletion',
-      headerName: 'Actual Completion',
-      type: 'date',
-      width: 180,
-      editable: true,
-      headerClassName: 'header-editable',
-      isCellEditable: (params) => {
-        // Globally disable editing if season is not Open
-        if (seasonDetails?.status !== 'Open') {
-          return false;
-        }
-
-        const task = params.row;
-        const userRole = currentUser?.role.toLowerCase();
-        const isAdminOrPlanner = userRole === 'admin' || userRole === 'planner';
-
-        if (params.field === 'actualCompletion') {
-          // Admins and Planners can always edit the completion date
-          if (isAdminOrPlanner) {
-            return true;
+      {
+        field: 'leadTime',
+        headerName: 'Lead Time (days)',
+        type: 'number',
+        width: 70,
+        editable: false,
+        align: 'right',
+        headerAlign: 'right',
+        valueGetter: (value, row) => row.leadTime,
+        cellClassName: 'font-tabular-nums',
+      },
+      {
+        field: 'computedDates.start',
+        headerName: 'Start Date',
+        type: 'date',
+        width: 120,
+        editable: false,
+        valueGetter: (value, row) =>
+          row.computedDates?.start ? new Date(row.computedDates.start) : null,
+        valueFormatter: (value) => (value ? moment(value).format('DD-MMM-YY') : ''),
+        cellClassName: 'font-tabular-nums',
+      },
+      {
+        field: 'computedDates.end',
+        headerName: 'End Date',
+        type: 'date',
+        width: 120,
+        editable: false,
+        valueGetter: (value, row) =>
+          row.computedDates?.end ? new Date(row.computedDates.end) : null,
+        valueFormatter: (value) => (value ? moment(value).format('DD-MMM-YY') : ''),
+        cellClassName: 'font-tabular-nums',
+      },
+      {
+        field: 'actualCompletion',
+        headerName: 'Actual Completion',
+        type: 'date',
+        width: 180,
+        headerClassName: 'header-editable',
+        editable: (params) => isCellEditable(params),
+        valueGetter: (value, row) =>
+          row.actualCompletion ? new Date(row.actualCompletion) : null,
+        valueFormatter: (value) => (value ? moment(value).format('DD-MMM-YY') : ''),
+        valueParser: (value) => (value ? moment(value, 'DD-MMM-YY').toDate() : null),
+        cellClassName: 'font-tabular-nums cell-editable',
+      },
+      {
+        field: 'dateSpend',
+        headerName: 'Date Spend',
+        width: 70,
+        editable: false,
+        align: 'center',
+        headerAlign: 'center',
+        renderCell: (params) => {
+          const { row } = params;
+          if (!row || !row.actualCompletion || !row.computedDates?.end) {
+            return '';
           }
-          // Other users can only edit if the task is actionable
-          return isTaskActionable(task, taskList);
-        }
-        return false; // Default to not editable
-      },
-      valueGetter: (value, row) => row.actualCompletion ? new Date(row.actualCompletion) : null,
-      valueFormatter: (value) => value ? moment(value).format('DD-MMM-YY') : '',
-      valueParser: (value) => value ? moment(value, 'DD-MMM-YY').toDate() : null,
-      cellClassName: 'font-tabular-nums cell-editable',
-    },
-    {
-      field: 'remarks',
-      headerName: 'Remarks',
-      flex: 1,
-      minWidth: 200,
-      editable: true,
-      headerClassName: 'header-editable',
-      isCellEditable: (params) => {
-        // Globally disable editing if season is not Open
-        if (seasonDetails?.status !== 'Open') {
-          return false;
-        }
-        const userRole = currentUser?.role.toLowerCase();
-        const isAdminOrPlanner = userRole === 'admin' || userRole === 'planner';
-        const taskStatusLower = params.row?.status ? params.row.status.toLowerCase() : null;
-        if (taskStatusLower === 'completed' && !isAdminOrPlanner) {
-          return false;
-        }
-        return isTaskActionable(params.row, taskList);
-      },
-      cellClassName: 'cell-editable',
-    },
-    {
-      field: 'attachments',
-      headerName: 'Attachments',
-      headerClassName: 'header-editable',
-      width: 150,
-      sortable: false,
-      filterable: false,
-      disableColumnMenu: true,
-      renderCell: (params) => <AttachmentCell params={params} seasonId={seasonId} onUploadSuccess={fetchSeasonDetails} />,
-      cellClassName: 'cell-editable',
-    },
-    {
-      field: 'actions',
-      type: 'actions',
-      headerName: 'Actions',
-      width: 100,
-      cellClassName: 'actions',
-      getActions: (params) => {
-        const isInEditMode = rowModesModel[params.id]?.mode === GridRowModes.Edit;
-        if (isInEditMode) {
-          return [
-            <GridActionsCellItem
-              icon={<SaveIcon />}
-              label="Save"
-              sx={{ color: 'primary.main' }}
-              onClick={handleSaveClick(params.id)}
-            />,
-            <GridActionsCellItem
-              icon={<CancelIcon />}
-              label="Cancel"
-              className="textPrimary"
-              onClick={handleCancelClick(params.id)}
-              color="inherit"
-            />,
-          ];
-        }
-        return [
-          <GridActionsCellItem
-            icon={<EditIcon />}
-            label="Edit"
-            className="textPrimary"
-            onClick={() => handleEditClick(params.id, params.row)}
-            color="inherit"
-          />,
-        ];
-      },
-    },
-  ], [currentUser, taskList, rowModesModel, seasonId, isTaskActionable, handleSaveClick, handleCancelClick, handleEditClick, fetchSeasonDetails]);
 
-  // Wait for auth context to load user before rendering the main component UI
-  if (authLoading) {
-    return <Typography>Loading user details...</Typography>; // Or a spinner component
-  }
+          const actual = moment(row.actualCompletion).startOf('day');
+          const plannedEnd = moment(row.computedDates.end).startOf('day');
+          const diff = actual.diff(plannedEnd, 'days');
+
+          const text = diff > 0 ? `+${diff}d` : `${diff}d`;
+          const color =
+            diff > 0 ? 'error.main' : diff < 0 ? 'success.main' : 'text.secondary';
+
+          return (
+            <Typography variant="body2" color={color} sx={{ fontWeight: 'bold', pt: 2 }}>
+              {text}
+            </Typography>
+          );
+        },
+      },
+      {
+        headerName: 'Remarks',
+        field: 'remarks',
+        flex: 2,
+        minWidth: 150,
+        sortable: false,
+        editable: false, // Editing is handled by the custom cell
+        renderCell: (params) => {
+          const editable = isCellEditable(params);
+          return <RemarksCell params={params} isEditable={editable} onSave={handleRemarkUpdate} />;
+        },
+        cellClassName: 'cell-editable',
+      },
+      {
+        field: 'attachments',
+        headerName: 'Attachments',
+        headerClassName: 'header-editable',
+        width: 150,
+        sortable: false,
+        filterable: false,
+        disableColumnMenu: true,
+        renderCell: (params) => (
+          <AttachmentCell
+            params={params}
+            seasonId={seasonId}
+            onUploadSuccess={fetchSeasonDetails}
+          />
+        ),
+        cellClassName: 'cell-editable',
+      },
+      {
+        field: 'actions',
+        type: 'actions',
+        headerName: 'Actions',
+        width: 100,
+        cellClassName: 'actions',
+        getActions: (params) => {
+            const isInEditMode = rowModesModel[params.id]?.mode === GridRowModes.Edit;
+            if (isInEditMode) {
+              return [
+                <GridActionsCellItem
+                  icon={<SaveIcon />}
+                  label="Save"
+                  sx={{ color: 'primary.main' }}
+                  onClick={handleSaveClick(params.id)}
+                />,
+                <GridActionsCellItem
+                  icon={<CancelIcon />}
+                  label="Cancel"
+                  className="textPrimary"
+                  onClick={handleCancelClick(params.id)}
+                  color="inherit"
+                />,
+              ];
+            }
+            return [
+              <GridActionsCellItem
+                icon={<EditIcon />}
+                label="Edit"
+                className="textPrimary"
+                onClick={() => handleEditClick(params.id, params.row)}
+                color="inherit"
+                disabled={!isCellEditable(params)}
+              />,
+            ];
+          },
+      },
+    ],
+    [
+      rowModesModel,
+      currentUser,
+      taskList,
+      seasonId,
+      fetchSeasonDetails,
+      isCellEditable,
+      handleRemarkUpdate,
+      isTaskActionable,
+      handleSaveClick, 
+      handleCancelClick, 
+      handleEditClick
+    ]
+  );
 
   // Optional: Redirect if not authenticated, though AuthProvider might handle this
   // if (!isAuthenticated && !authLoading) { // authLoading is false here

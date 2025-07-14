@@ -8,6 +8,7 @@ import {
     DialogActions,
     DialogContent,
     DialogTitle,
+    DialogContentText,
     CircularProgress,
     Backdrop,
     FormControl,
@@ -16,7 +17,8 @@ import {
     MenuItem,
     FormHelperText,
     Switch,
-    FormControlLabel
+    FormControlLabel,
+    Box
 } from '@mui/material';
 import { toast } from 'react-toastify';
 
@@ -34,6 +36,8 @@ const EditUserForm = ({ user, open, onClose, onUpdated }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [submitted, setSubmitted] = useState(false);
+    const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+    const [isResetting, setIsResetting] = useState(false);
 
     const fetchDepartments = useCallback(async () => {
         try {
@@ -131,6 +135,19 @@ const EditUserForm = ({ user, open, onClose, onUpdated }) => {
         setLoading(false);
     };
 
+    const handleResetPassword = async () => {
+        setIsResetting(true);
+        try {
+            const response = await userService.resetPassword(user._id);
+            toast.success(response.message || 'Password has been reset to "password1234".');
+            setConfirmResetOpen(false);
+        } catch (err) {
+            toast.error(err.message || 'Failed to reset password.');
+        } finally {
+            setIsResetting(false);
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!formData.department) {
@@ -182,7 +199,8 @@ const EditUserForm = ({ user, open, onClose, onUpdated }) => {
     }
 
     return (
-        <Dialog open={open} onClose={handleClose} fullWidth maxWidth="md">
+        <>
+            <Dialog open={open} onClose={handleClose} fullWidth maxWidth="md">
             <Backdrop
                 sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.drawer + 2 }}
                 open={loading}
@@ -281,14 +299,44 @@ const EditUserForm = ({ user, open, onClose, onUpdated }) => {
                         sx={{ mt: 1, mb:1 }}
                     />
                 </DialogContent>
-                <DialogActions sx={{ p: '16px 24px' }}>
-                    <Button onClick={handleClose} color="inherit" disabled={loading}>Cancel</Button>
-                    <Button type="submit" variant="contained" color="primary" disabled={loading}>
-                        {loading ? <CircularProgress size={24} /> : 'Save Changes'}
+                <DialogActions sx={{ p: '16px 24px', justifyContent: 'space-between' }}>
+                    <Button 
+                        onClick={() => setConfirmResetOpen(true)} 
+                        color="error" 
+                        variant="outlined"
+                        disabled={loading || isResetting}
+                    >
+                        Reset Password
                     </Button>
+                    <Box>
+                        <Button onClick={handleClose} color="inherit" disabled={loading || isResetting}>Cancel</Button>
+                        <Button type="submit" variant="contained" color="primary" disabled={loading || isResetting}>
+                            {loading ? <CircularProgress size={24} /> : 'Save Changes'}
+                        </Button>
+                    </Box>
                 </DialogActions>
             </form>
         </Dialog>
+
+        {/* Confirmation Dialog for Password Reset */}
+        <Dialog
+            open={confirmResetOpen}
+            onClose={() => setConfirmResetOpen(false)}
+        >
+            <DialogTitle>Confirm Password Reset</DialogTitle>
+            <DialogContent>
+                <DialogContentText>
+                    Are you sure you want to reset the password for <strong>{user?.username}</strong> to "password1234"? This action cannot be undone.
+                </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={() => setConfirmResetOpen(false)} disabled={isResetting}>Cancel</Button>
+                <Button onClick={handleResetPassword} color="error" disabled={isResetting}>
+                    {isResetting ? <CircularProgress size={24} /> : 'Confirm Reset'}
+                </Button>
+            </DialogActions>
+        </Dialog>
+        </>
     );
 };
 
