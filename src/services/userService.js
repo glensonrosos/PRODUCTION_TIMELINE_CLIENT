@@ -53,6 +53,16 @@ const userService = {
       // This allows the calling component (ChangePasswordPage) to access specific error messages
       throw error.response?.data || new Error('Failed to change password');
     }
+  },
+
+  resetPassword: async (id) => {
+    try {
+      const response = await api.put(`/users/${id}/reset-password`);
+      return response.data; // Expected { message: '...' }
+    } catch (error) {
+      console.error(`Failed to reset password for user ${id}:`, error.response?.data?.message || error.message);
+      throw error.response?.data || new Error('Failed to reset password');
+    }
   }
 };
 
