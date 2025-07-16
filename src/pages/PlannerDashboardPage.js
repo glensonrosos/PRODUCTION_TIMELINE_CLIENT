@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { Box, Typography, Paper, Switch, FormControlLabel, Button } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import axios from 'axios';
 import { format } from 'date-fns';
 
 const PlannerDashboardPage = () => {
+  const { user } = useAuth();
   const [emailLogs, setEmailLogs] = useState([]);
   const [settings, setSettings] = useState({});
     const [loading, setLoading] = useState(true);
@@ -74,6 +76,19 @@ const PlannerDashboardPage = () => {
     setResending(false);
   };
 
+  const handleClearLogs = async () => {
+    if (window.confirm('Are you sure you want to delete all email logs? This action cannot be undone.')) {
+      try {
+        const res = await api.delete('/api/logs/email');
+        alert(res.data.message || 'Email logs cleared successfully.');
+        fetchEmailLogs(); // Refresh the logs, which should now be empty
+      } catch (error) {
+        console.error('Failed to clear email logs:', error);
+        alert(error.response?.data?.message || 'An error occurred while clearing email logs.');
+      }
+    }
+  };
+
   const columns = [
     { field: 'sentAt', headerName: 'Date', width: 160, valueFormatter: (value) => format(new Date(value), 'yyyy-MM-dd HH:mm') },
     { field: 'recipient', headerName: 'Recipient', width: 200 },
@@ -107,6 +122,16 @@ const PlannerDashboardPage = () => {
             >
                 {resending ? 'Resending...' : 'Resend All Pending Notifications'}
             </Button>
+            {(user?.role === 'Admin' || user?.role === 'Planner') && (
+              <Button 
+                variant="contained" 
+                color="error"
+                onClick={handleClearLogs} 
+                sx={{ ml: 2 }}
+              >
+                Clear All Email Logs
+              </Button>
+            )}
         </Box>
       </Paper>
 
