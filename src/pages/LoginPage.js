@@ -39,7 +39,6 @@ const LoginPage = () => {
           flexDirection: 'column', 
           alignItems: 'center', 
           padding: 4 ,
-          backgroundColor: 'rgba(255, 255, 255, 0.8)'
         }}
       >
         <Avatar sx={{ m: 1, bgcolor: 'secondary.main' }}>
