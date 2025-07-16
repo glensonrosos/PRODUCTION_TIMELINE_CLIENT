@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 // import MenuIcon from '@mui/icons-material/Menu'; // Example for a potential sidebar toggle - removed as unused
 import AccountCircle from '@mui/icons-material/AccountCircle';
+import backgroundImage from '../public/peak_background.svg';
 
 const MainLayout = () => {
   const { user, logout } = useAuth();
@@ -33,7 +34,11 @@ const MainLayout = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh',
-     }}>
+      width: '100%',
+      height: '100%',
+      backgroundImage: `url(${backgroundImage})`,
+      backgroundSize: 'cover',
+   }}>
       <AppBar position="static">
         <Toolbar>
           {/* <IconButton
