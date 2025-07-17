@@ -51,7 +51,7 @@ const MainLayout = () => {
             <MenuIcon />
           </IconButton> */}
           <Typography variant="h6" component={RouterLink} to="/dashboard" sx={{ flexGrow: 1, color: 'inherit', textDecoration: 'none' }}>
-            PEBA Production Timeline
+            PRODUCTION Timeline
           </Typography>
           {user && (
             <div style={{ display: 'flex', alignItems: 'center' }}>
